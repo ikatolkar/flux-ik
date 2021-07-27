@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cac.fullname" . }}
+  labels:
+    {{- include "cac.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cac.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: {{ .Values.updateStrategy.maxUnavailable }}
+      maxSurge: {{ .Values.updateStrategy.maxSurge }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "cac.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "cac.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.cac.image.name }}:{{ .Values.cac.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          #command: ['/bin/sh']
+          #args: ['-c', 'sleep 15 && touch /tmp/healthy && sleep 50000']
+          livenessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/livenessProbe
+            initialDelaySeconds: 5
+            periodSeconds: 1
+          readinessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/readinessProbe
+            initialDelaySeconds: {{ .Values.cac.probes.readinessInitialDelaySeconds }}
+            periodSeconds: 1
+            failureThreshold: 60
+          startupProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/startupProbe
+            failureThreshold: 5
+            initialDelaySeconds: {{ .Values.cac.probes.startupInitialDelaySeconds }}
+            periodSeconds: 1
+          env:
+            - name: STARTUP_PROBE_DELAY
+              value: "{{ .Values.cac.env.STARTUP_PROBE_DELAY }}"
+            - name: READINESS_PROBE_DELAY
+              value: "{{ .Values.cac.env.READINESS_PROBE_DELAY }}"
+            - name: FAIL_AFTER
+              value: "{{ .Values.cac.env.FAIL_AFTER }}"
+            - name: FAIL_RANDOM_MIN
+              value: "0"
+            - name: FAIL_RANDOM_MAX
+              value: "60"
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

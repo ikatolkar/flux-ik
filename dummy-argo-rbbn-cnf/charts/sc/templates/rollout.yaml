@@ -1,0 +1,104 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "sc.fullname" . }}
+  labels:
+    {{- include "sc.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "sc.selectorLabels" . | nindent 6 }}
+  strategy:
+    canary:
+      maxUnavailable: {{ .Values.updateStrategy.maxUnavailable }}
+      maxSurge: {{ .Values.updateStrategy.maxSurge }}
+      {{- if eq .Values.updateStrategy.canary true }}
+      steps:
+      {{- range .Values.updateStrategy.canarySteps }}
+        - setWeight: {{ .setWeight }}
+        {{- if .pause }}
+        - pause: { duration: {{ .pause }} }
+        {{- else }}
+        - pause: {}
+        {{- end }}
+      {{- end }}
+      {{- end}}      
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "sc.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "sc.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.sc.image.name }}:{{ .Values.sc.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: IfNotPresent
+          #command: ['/bin/sh']
+          #args: ['-c', 'sleep 15 && touch /tmp/healthy && sleep 50000']
+          livenessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/livenessProbe
+            initialDelaySeconds: 5
+            periodSeconds: 1
+          readinessProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/readinessProbe
+            initialDelaySeconds: {{ .Values.sc.probes.readinessInitialDelaySeconds }}
+            periodSeconds: 1
+            failureThreshold: 60
+          startupProbe:
+            exec:
+              command:
+                - cat
+                - /tmp/startupProbe
+            failureThreshold: 5
+            initialDelaySeconds: {{ .Values.sc.probes.startupInitialDelaySeconds }}
+            periodSeconds: 1
+          env:
+            - name: STARTUP_PROBE_DELAY
+              value: "{{ .Values.sc.env.STARTUP_PROBE_DELAY }}"
+            - name: READINESS_PROBE_DELAY
+              value: "{{ .Values.sc.env.READINESS_PROBE_DELAY }}"
+            - name: FAIL_AFTER
+              value: "{{ .Values.sc.env.FAIL_AFTER }}"
+            - name: FAIL_RANDOM_MIN
+              value: "0"
+            - name: FAIL_RANDOM_MAX
+              value: "60"
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
